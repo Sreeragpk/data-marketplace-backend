@@ -1,0 +1,20 @@
+SalesTerritoryKey,Region,Country,Continent
+1,Northwest,United States,North America
+2,Northeast,United States,North America
+3,Central,United States,North America
+4,Southwest,United States,North America
+5,Southeast,United States,North America
+6,Canada,Canada,North America
+7,France,France,Europe
+8,Germany,Germany,Europe
+9,Australia,Australia,Pacific
+10,United Kingdom,United Kingdom,Europe
+15
+7/4/2022,Bikes,36,33,43
+7/4/2022,Components,16,17,30
+7/4/2022,Clothing,15,18,28
+7/4/2022,Accessories,34,28,31
+7/5/2022,Bikes,16,43,14
+7/5/2022,Components,14,32,11
+7/5/2022,Clothing,11,25,46
+7/5/2022,Accessories,10,21,25
