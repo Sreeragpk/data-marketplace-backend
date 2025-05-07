@@ -1,17 +1,18 @@
 require('dotenv').config();
 const paymentRoutes = require('./routes/paymentRoutes'); 
 const purchases = require('./routes/purchases'); 
-const datasets = require('./routes/datasets');   
-const datasetRoutes = require('./routes/datasetRoutes'); // Adjust the path as needed
+const datasets = require('./routes/datasets');
+const { createClient } = require('@supabase/supabase-js');  
+const multer = require('multer');
+const datasetRoutes = require('./routes/datasetRoutes'); 
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const pool = require('./db');
-const multer = require('multer');
 const path = require('path');
-const jwt = require('jsonwebtoken'); // For authentication token
-const nodemailer = require('nodemailer'); // For sending reset emails
-const crypto = require('crypto'); // For generating reset toke
+const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 const fs = require('fs');
 const csv = require('csv-parser');
 const app = express();
@@ -20,8 +21,18 @@ const router = express.Router();
 const PORT = process.env.PORT || 5000;
 const saltRounds = 10;
 
+// CORS setup
 app.use(cors());
 app.use(express.json());
+
+// Supabase client setup (use environment variables for credentials)
+const supabase = createClient(
+  process.env.SUPABASE_URL, 
+  process.env.SUPABASE_KEY
+);
+// File upload setup
+const storage = multer.memoryStorage();
+const upload = multer({ storage }).array('files');
 
 // ---------------- Setup Nodemailer ----------------
 const transporter = nodemailer.createTransport({
@@ -240,30 +251,22 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ---------------- Middleware for Authentication ----------------
+// Middleware for authentication
 const authenticateToken = (req, res, next) => {
   const authHeader = req.header('Authorization');
-
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Access Denied: No token provided' });
   }
 
   const token = authHeader.split(' ')[1];
-
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = {
-      id: decoded.id,
-      email: decoded.email,
-      role: decoded.role,
-      name:decoded.name
-    };
+    req.user = { id: decoded.id, email: decoded.email, role: decoded.role };
     next();
   } catch (err) {
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
 };
-
 
 // ---------------- Optional: Admin Middleware ----------------
 const isAdmin = (req, res, next) => {
@@ -284,7 +287,7 @@ app.delete('/api/admin/datasets/:id', authenticateToken, isAdmin, async (req, re
   const { id } = req.params;
 
   try {
-    // First, get the file_path from database
+    // First, get the file_path from the database
     const dataset = await pool.query('SELECT file_path FROM datasets WHERE id = $1', [id]);
 
     if (dataset.rows.length === 0) {
@@ -293,19 +296,21 @@ app.delete('/api/admin/datasets/:id', authenticateToken, isAdmin, async (req, re
 
     const filePaths = dataset.rows[0].file_path.split(',');
 
-    // Delete all associated files
-    filePaths.forEach(fileName => {
-      const fileFullPath = path.join(__dirname, 'uploads', fileName);
-      fs.unlink(fileFullPath, (err) => {
-        if (err) {
-          console.error(`Error deleting file ${fileName}:`, err.message);
-        } else {
-          console.log(`Deleted file: ${fileName}`);
-        }
-      });
-    });
+    // Delete all associated files from Supabase Storage
+    for (const fileName of filePaths) {
+      const { error: deleteError } = await supabase.storage
+        .from('datasets') // your bucket name
+        .remove([fileName]); // file name or array of file names
 
-    // Then delete the dataset entry from DB
+      if (deleteError) {
+        console.error(`Error deleting file ${fileName}:`, deleteError.message);
+        return res.status(500).json({ error: `Failed to delete file ${fileName}` });
+      } else {
+        console.log(`Deleted file: ${fileName}`);
+      }
+    }
+
+    // Then delete the dataset entry from the database
     await pool.query('DELETE FROM datasets WHERE id = $1', [id]);
 
     res.json({ message: 'Dataset and associated files deleted successfully' });
@@ -314,6 +319,7 @@ app.delete('/api/admin/datasets/:id', authenticateToken, isAdmin, async (req, re
     res.status(500).json({ error: 'Failed to delete dataset' });
   }
 });
+
 
 
 //Delete a user dataset
@@ -378,19 +384,21 @@ app.delete('/api/datasets/user/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to delete this dataset' });
     }
 
-    const filePaths = dataset.rows[0].file_path.split(','); // because you store multiple filenames separated by ","
+    const filePaths = dataset.rows[0].file_path.split(','); // Because you store multiple filenames separated by ","
 
-    // Delete files from uploads folder
-    filePaths.forEach(fileName => {
-      const fileFullPath = path.join(__dirname, 'uploads', fileName);
-      fs.unlink(fileFullPath, (err) => {
-        if (err) {
-          console.error(`Failed to delete file ${fileName}:`, err.message);
-        } else {
-          console.log(`Deleted file: ${fileName}`);
-        }
-      });
-    });
+    // Delete files from Supabase Storage
+    for (const fileName of filePaths) {
+      const { error: deleteError } = await supabase.storage
+        .from('datasets') // your bucket name
+        .remove([fileName]); // file name or array of file names
+
+      if (deleteError) {
+        console.error(`Error deleting file ${fileName}:`, deleteError.message);
+        return res.status(500).json({ error: `Failed to delete file ${fileName}` });
+      } else {
+        console.log(`Deleted file: ${fileName}`);
+      }
+    }
 
     // Delete from database
     await pool.query(
@@ -404,6 +412,7 @@ app.delete('/api/datasets/user/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Server error deleting dataset' });
   }
 });
+
 
 app.get('/api/purchases/user/:userId', authenticateToken, async (req, res) => {
   const { userId } = req.params;
@@ -522,49 +531,142 @@ app.get('/api/admin/recent-purchases', authenticateToken, async (req, res) => {
 
 
 
-// Set up storage for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/'); // Directory where files are stored
-  },
-  filename: (req, file, cb) => {
-    const filename = Date.now() + path.extname(file.originalname);
-    cb(null, filename); // Use a unique name for the file
-  }
-});
+// // Set up storage for file uploads
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => {
+//     cb(null, 'uploads/'); // Directory where files are stored
+//   },
+//   filename: (req, file, cb) => {
+//     const filename = Date.now() + path.extname(file.originalname);
+//     cb(null, filename); // Use a unique name for the file
+//   }
+// });
 
-// Initialize multer with the storage configuration and a limit for file uploads
-const upload = multer({
-  storage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
-}).array('files'); // `array` because we are allowing multiple files (folder upload)
+// // Initialize multer with the storage configuration and a limit for file uploads
+// const upload = multer({
+//   storage,
+//   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
+// }).array('files'); // `array` because we are allowing multiple files (folder upload)
 
 
-// Update your route to use the array method for multiple file uploads
-app.post('/api/datasets', authenticateToken, upload, async (req, res) => {
+// // Update your route to use the array method for multiple file uploads
+// app.post('/api/datasets', authenticateToken, upload, async (req, res) => {
+//   const { title, description, price } = req.body;
+//   const uploadedBy = req.user.email; // Use logged-in user's email
+
+//   // Ensure files were uploaded
+//   if (!req.files || req.files.length === 0) {
+//     return res.status(400).json({ error: 'No files uploaded' });
+//   }
+
+//   // Iterate over files and insert each one into the database
+//   const filePaths = req.files.map(file => file.filename); // Save the filenames
+
+//   // Now insert the data and file information into the database
+//   try {
+//     const result = await pool.query(
+//       'INSERT INTO datasets (title, description, price, file_path, uploaded_by) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+//       [title, description, price, filePaths.join(','), uploadedBy]
+//     );
+//     res.status(201).json(result.rows[0]);
+//   } catch (err) {
+//     console.error('Error uploading dataset:', err.message);
+//     res.status(500).json({ error: 'Failed to upload dataset' });
+//   }
+// });
+
+
+
+// Route to upload dataset
+router.post('/api/datasets', authenticateToken, upload, async (req, res) => {
   const { title, description, price } = req.body;
-  const uploadedBy = req.user.email; // Use logged-in user's email
+  const uploadedBy = req.user.email;
 
-  // Ensure files were uploaded
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ error: 'No files uploaded' });
   }
 
-  // Iterate over files and insert each one into the database
-  const filePaths = req.files.map(file => file.filename); // Save the filenames
-
-  // Now insert the data and file information into the database
   try {
+    const uploadedFileUrls = [];
+
+    for (const file of req.files) {
+      const uniqueName = `${Date.now()}_${file.originalname}`;
+
+      // Upload to Supabase Storage bucket
+      const { data, error } = await supabase.storage
+        .from('datasets') // Name of your bucket
+        .upload(uniqueName, file.buffer, {
+          contentType: file.mimetype,
+        });
+
+      if (error) throw error;
+
+      // Get public URL of the uploaded file
+      const { data: publicUrlData } = supabase.storage
+        .from('datasets')
+        .getPublicUrl(uniqueName);
+
+      uploadedFileUrls.push(publicUrlData.publicUrl);
+    }
+
+    // Insert dataset metadata into your database (PostgreSQL)
     const result = await pool.query(
       'INSERT INTO datasets (title, description, price, file_path, uploaded_by) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [title, description, price, filePaths.join(','), uploadedBy]
+      [title, description, price, uploadedFileUrls.join(','), uploadedBy]
     );
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('Error uploading dataset:', err.message);
+    console.error('Error uploading to Supabase Storage:', err.message);
     res.status(500).json({ error: 'Failed to upload dataset' });
   }
 });
+
+// Start the server
+app.use(router);
+
+
+
+
+
+
+
+// ---------------- Get Datasets ----------------
+app.get('/api/datasets', async (req, res) => {
+  const search = req.query.search || '';
+  const result = await pool.query(
+    'SELECT * FROM datasets WHERE title ILIKE $1',
+    [`%${search}%`]
+  );
+  res.json(result.rows);
+});
+
+// ---------------- Get Dataset By ID ----------------
+app.get('/api/datasets/:id', async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query('SELECT * FROM datasets WHERE id = $1', [id]);
+  res.json(result.rows[0]);
+});
+
+// ---------------- Download Dataset ----------------
+app.get('/api/download/:id', async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query('SELECT file_path FROM datasets WHERE id = $1', [id]);
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: 'Dataset not found' });
+  }
+
+  const filePath = path.join(__dirname, 'uploads', result.rows[0].file_path);
+  res.download(filePath);
+});
+
+
+
+
+
+
+
 
 // ---------------- Get Datasets ----------------
 app.get('/api/datasets', async (req, res) => {
