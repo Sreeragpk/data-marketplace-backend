@@ -68,7 +68,7 @@ app.post('/api/forgot-password', async (req, res) => {
     );
 
     // Create a reset password URL
-    const resetUrl = `http://localhost:5173/reset-password?token=${resetToken}&email=${email}`;
+    const resetUrl = `https://factyesdatamarketplacetesting.netlify.app//reset-password?token=${resetToken}&email=${email}`;
 
     // Send reset email
     await transporter.sendMail({
@@ -199,7 +199,7 @@ const sendWelcomeEmail = async (email, name, password) => {
                 <p style="font-size: 16px;">You can now log in and start exploring the marketplace by clicking the button below:</p>
 
                 <p style="text-align: center; margin-top: 30px;">
-                  <a href="https://your-website.com/login" style="background-color: #4C6EB1; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Login</a>
+                  <a href="https://factyesdatamarketplacetesting.netlify.app/login" style="background-color: #4C6EB1; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Login</a>
                 </p>
 
                 <p style="font-size: 12px; text-align: center; margin-top: 20px;">If you did not sign up, please ignore this email.</p>
@@ -709,5 +709,5 @@ app.use('/api', paymentRoutes);
 
 // ---------------- Start Server ----------------
 app.listen(PORT, () => {
-  console.log(`✅ Server is running at http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
