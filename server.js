@@ -68,7 +68,7 @@ app.post('/api/forgot-password', async (req, res) => {
     );
 
     // Create a reset password URL
-    const resetUrl = `https://factyesdatamarketplacetesting.netlify.app//reset-password?token=${resetToken}&email=${email}`;
+    const resetUrl = `https://factyesdatamarketplacetesting.netlify.app/reset-password?token=${resetToken}&email=${email}`;
 
     // Send reset email
     await transporter.sendMail({
@@ -282,35 +282,41 @@ app.get('/api/admin/datasets', authenticateToken, isAdmin, async (req, res) => {
   res.json(result.rows);
 });
 
-// Delete a dataset
+// Delete a dataset Admin
+
 app.delete('/api/admin/datasets/:id', authenticateToken, isAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
-    // First, get the file_path from the database
+    // Get file paths from DB
     const dataset = await pool.query('SELECT file_path FROM datasets WHERE id = $1', [id]);
 
     if (dataset.rows.length === 0) {
       return res.status(404).json({ error: 'Dataset not found' });
     }
 
-    const filePaths = dataset.rows[0].file_path.split(',');
+    let filePaths = dataset.rows[0].file_path;
 
-    // Delete all associated files from Supabase Storage
-    for (const fileName of filePaths) {
+    // Handle comma-separated paths (if stored like that)
+    const filesToDelete = filePaths
+      .split(',')
+      .map((path) => path.trim())
+      .filter((path) => path); // Remove empty strings
+
+    if (filesToDelete.length > 0) {
       const { error: deleteError } = await supabase.storage
-        .from('datasets') // your bucket name
-        .remove([fileName]); // file name or array of file names
+        .from('datasets') // Your Supabase bucket name
+        .remove(filesToDelete);
 
       if (deleteError) {
-        console.error(`Error deleting file ${fileName}:`, deleteError.message);
-        return res.status(500).json({ error: `Failed to delete file ${fileName}` });
-      } else {
-        console.log(`Deleted file: ${fileName}`);
+        console.error('Error deleting files from Supabase:', deleteError.message);
+        return res.status(500).json({ error: 'Failed to delete dataset files from storage' });
       }
+
+      console.log('Deleted files from Supabase:', filesToDelete);
     }
 
-    // Then delete the dataset entry from the database
+    // Delete dataset record from DB
     await pool.query('DELETE FROM datasets WHERE id = $1', [id]);
 
     res.json({ message: 'Dataset and associated files deleted successfully' });
@@ -319,6 +325,7 @@ app.delete('/api/admin/datasets/:id', authenticateToken, isAdmin, async (req, re
     res.status(500).json({ error: 'Failed to delete dataset' });
   }
 });
+
 
 
 
