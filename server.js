@@ -651,52 +651,34 @@ app.get('/api/datasets/:id', async (req, res) => {
 // ---------------- Download Dataset ----------------
 app.get('/api/download/:id', async (req, res) => {
   const { id } = req.params;
-  const result = await pool.query('SELECT file_path FROM datasets WHERE id = $1', [id]);
 
-  if (result.rows.length === 0) {
-    return res.status(404).json({ error: 'Dataset not found' });
+  try {
+    const result = await pool.query('SELECT file_path FROM datasets WHERE id = $1', [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Dataset not found' });
+    }
+
+    // Get file paths (comma-separated) and split into array
+    const filePaths = result.rows[0].file_path.split(',');
+
+    // If multiple files, send array of public URLs
+    const downloadUrls = filePaths.map(path => {
+      return supabase
+        .storage
+        .from('datasets')
+        .getPublicUrl(path.trim()).data.publicUrl;
+    });
+
+    res.json({ downloadUrls });
+  } catch (error) {
+    console.error('Error retrieving dataset download URLs:', error.message);
+    res.status(500).json({ error: 'Failed to generate download link' });
   }
-
-  const filePath = path.join(__dirname, 'uploads', result.rows[0].file_path);
-  res.download(filePath);
 });
 
 
 
-
-
-
-
-
-// ---------------- Get Datasets ----------------
-app.get('/api/datasets', async (req, res) => {
-  const search = req.query.search || '';
-  const result = await pool.query(
-    'SELECT * FROM datasets WHERE title ILIKE $1',
-    [`%${search}%`]
-  );
-  res.json(result.rows);
-});
-
-// ---------------- Get Dataset By ID ----------------
-app.get('/api/datasets/:id', async (req, res) => {
-  const { id } = req.params;
-  const result = await pool.query('SELECT * FROM datasets WHERE id = $1', [id]);
-  res.json(result.rows[0]);
-});
-
-// ---------------- Download Dataset ----------------
-app.get('/api/download/:id', async (req, res) => {
-  const { id } = req.params;
-  const result = await pool.query('SELECT file_path FROM datasets WHERE id = $1', [id]);
-
-  if (result.rows.length === 0) {
-    return res.status(404).json({ error: 'Dataset not found' });
-  }
-
-  const filePath = path.join(__dirname, 'uploads', result.rows[0].file_path);
-  res.download(filePath);
-});
 
 app.use('/api', datasetRoutes);
 

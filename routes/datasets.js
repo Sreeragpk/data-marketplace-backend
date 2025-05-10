@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db'); // adjust path if needed
-const path = require('path');
-const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
 
-// Download dataset file (only if purchased)
+// Initialize Supabase client
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
 router.get('/:id/download', async (req, res) => {
   const datasetId = parseInt(req.params.id);
-  const userId = parseInt(req.query.userId); // 🚨 Insecure for production — use auth token/session
+  const userId = parseInt(req.query.userId);
 
   if (!userId || !datasetId) {
     return res.status(400).json({ error: 'Missing user ID or dataset ID' });
@@ -32,19 +33,25 @@ router.get('/:id/download', async (req, res) => {
       return res.status(404).json({ error: 'Dataset not found' });
     }
 
-    const filePath = dataset.rows[0].file_path;
-    const fullPath = path.join(__dirname, '..', 'uploads', filePath);
+    const filePaths = dataset.rows[0].file_path.split(',');
+    const downloadUrls = [];
 
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ error: 'File does not exist on server' });
+    for (const path of filePaths) {
+      const { data } = supabase.storage.from('datasets').getPublicUrl(path.trim());
+      if (data?.publicUrl) {
+        downloadUrls.push(data.publicUrl);
+      }
     }
 
-    res.download(fullPath, path.basename(filePath));
+    if (downloadUrls.length === 0) {
+      return res.status(404).json({ error: 'No valid files found in Supabase' });
+    }
+
+    res.json({ downloadUrls });
   } catch (err) {
-    console.error('Error in download route:', err);
+    console.error('Download route error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
 
 module.exports = router;
