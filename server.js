@@ -357,6 +357,27 @@ app.delete(
   }
 );
 
+
+// ---------------- Get All Purchases (Admin) ----------------
+app.get("/api/admin/purchases", authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.id, p.user_id, u.email, d.title AS dataset_title, p.dataset_id, p.purchased_at
+      FROM purchases p
+      JOIN users u ON u.id = p.user_id
+      JOIN datasets d ON d.id = p.dataset_id
+      ORDER BY p.purchased_at DESC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching purchases:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+
+
 //Delete a user dataset
 app.delete(
   "/api/datasets/:id",
