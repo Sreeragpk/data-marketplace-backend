@@ -416,59 +416,43 @@ app.delete(
   }
 );
 
-// ---------------- Get User's Datasets by Email ----------------
-app.get("/api/datasets/user", authenticateToken, async (req, res) => {
-  try {
-    const userEmail = req.user.email; // Get email from the token
-    const result = await pool.query(
-      "SELECT * FROM datasets WHERE uploaded_by = $1",
-      [userEmail]
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching datasets:", error.message);
-    res.status(500).json({ error: "Server error fetching datasets" });
-  }
-});
-
 app.delete("/api/datasets/user/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
   const userEmail = req.user.email;
 
   try {
-    // Check if the dataset belongs to the user
     const dataset = await pool.query(
       "SELECT * FROM datasets WHERE id = $1 AND uploaded_by = $2",
       [id, userEmail]
     );
 
     if (dataset.rows.length === 0) {
-      return res
-        .status(403)
-        .json({ error: "Not authorized to delete this dataset" });
+      return res.status(403).json({ error: "Not authorized to delete this dataset" });
     }
 
-    const filePaths = dataset.rows[0].file_path.split(","); // Because you store multiple filenames separated by ","
+    const filePathString = dataset.rows[0].file_path || "";
+    const filePaths = filePathString
+      .split(",")
+      .map(p => p.trim().split("/").pop())
+      .filter(Boolean);
 
-    // Delete files from Supabase Storage
+    console.log("Files to delete:", filePaths);
+
     for (const fileName of filePaths) {
       const { error: deleteError } = await supabase.storage
-        .from("datasets") // your bucket name
-        .remove([fileName]); // file name or array of file names
+        .from("datasets")
+        .remove([fileName]);
 
       if (deleteError) {
         console.error(`Error deleting file ${fileName}:`, deleteError.message);
-        return res
-          .status(500)
-          .json({ error: `Failed to delete file ${fileName}` });
-      } else {
-        console.log(`Deleted file: ${fileName}`);
+        return res.status(500).json({ error: `Failed to delete file ${fileName}` });
       }
+
+      console.log(`Deleted file: ${fileName}`);
     }
 
-    // Delete from database
     await pool.query("DELETE FROM datasets WHERE id = $1", [id]);
+    console.log(`Deleted dataset with ID: ${id}`);
 
     res.json({ message: "Dataset and associated files deleted successfully" });
   } catch (error) {
@@ -476,6 +460,8 @@ app.delete("/api/datasets/user/:id", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Server error deleting dataset" });
   }
 });
+
+///purchase dataset
 
 app.get("/api/purchases/user/:userId", authenticateToken, async (req, res) => {
   const { userId } = req.params;
