@@ -416,6 +416,22 @@ app.delete(
   }
 );
 
+// ---------------- Get User's Datasets by Email ----------------
+app.get("/api/datasets/user", authenticateToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email; // Get email from the token
+    const result = await pool.query(
+      "SELECT * FROM datasets WHERE uploaded_by = $1",
+      [userEmail]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching datasets:", error.message);
+    res.status(500).json({ error: "Server error fetching datasets" });
+  }
+});
+
 app.delete("/api/datasets/user/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
   const userEmail = req.user.email;
@@ -461,8 +477,7 @@ app.delete("/api/datasets/user/:id", authenticateToken, async (req, res) => {
   }
 });
 
-///purchase dataset
-
+// ---------------- Get User's Purchased Datasets ----------------
 app.get("/api/purchases/user/:userId", authenticateToken, async (req, res) => {
   const { userId } = req.params;
 
